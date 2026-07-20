@@ -29,6 +29,14 @@ body {
     box-shadow: 0 20px 40px rgba(0,0,0,0.6);
     overflow: hidden;
 }
+#game-container.shake { animation: shake 0.3s; }
+@keyframes shake {
+    0%, 100% { transform: translate(0,0); }
+    20% { transform: translate(-6px, 4px); }
+    40% { transform: translate(6px, -4px); }
+    60% { transform: translate(-4px, -4px); }
+    80% { transform: translate(4px, 4px); }
+}
 #hud {
     position: absolute;
     top: 0; left: 0; right: 0;
@@ -39,10 +47,27 @@ body {
     border-bottom: 2px solid #ff4d6d;
     color: #fff;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 13px;
     z-index: 5;
 }
 .stat span { color: #ff4d6d; }
+#boss-bar-wrap {
+    position: absolute;
+    top: 44px; left: 10px; right: 10px;
+    height: 10px;
+    background: #22141c;
+    border: 1px solid #ff4d6d;
+    border-radius: 5px;
+    z-index: 5;
+    display: none;
+    overflow: hidden;
+}
+#boss-bar {
+    height: 100%;
+    width: 100%;
+    background: linear-gradient(90deg, #ff4d6d, #ff9770);
+    transition: width 0.15s ease;
+}
 #castle-wall {
     position: absolute;
     bottom: 0; left: 0; right: 0;
@@ -54,6 +79,7 @@ body {
     justify-content: center;
     align-items: center;
     z-index: 2;
+    transition: background 0.15s ease;
 }
 #castle-heart {
     font-size: 40px;
@@ -61,25 +87,50 @@ body {
 }
 @keyframes pulse { from { transform: scale(1); } to { transform: scale(1.15); } }
 
-/* Game Entities */
 .entity {
     position: absolute;
     font-size: 38px;
     transform: translateX(-50%);
-    transition: transform 0.1s ease;
+    transition: transform 0.1s ease, top 0.04s linear, left 0.04s linear;
     z-index: 3;
+    pointer-events: none;
 }
+.entity.boss { font-size: 60px; }
 .slash-effect {
     position: absolute;
     font-size: 45px;
     pointer-events: none;
     z-index: 4;
     transform: translate(-50%, -50%);
-    animation: fadeOut 0.2s forwards;
+    animation: fadeOut 0.25s forwards;
 }
-@keyframes fadeOut { from { opacity: 1; scale: 1.2; } to { opacity: 0; scale: 0.8; } }
+@keyframes fadeOut { from { opacity: 1; transform: translate(-50%, -50%) scale(1.3); } to { opacity: 0; transform: translate(-50%, -50%) scale(0.8); } }
 
-/* Overlays */
+.wave-banner {
+    position: absolute;
+    top: 45%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: #ff4d6d;
+    font-size: 26px;
+    font-weight: bold;
+    text-shadow: 2px 2px #000;
+    z-index: 6;
+    pointer-events: none;
+    animation: bannerPop 1.4s forwards;
+    text-align: center;
+    white-space: nowrap;
+}
+.wave-banner.ambush { color: #ffd23f; font-size: 24px; animation: bannerPop 1s forwards; }
+.wave-banner.boss { color: #ff1744; font-size: 24px; }
+@keyframes bannerPop {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+    25% { transform: translate(-50%, -50%) scale(1); }
+    80% { opacity: 1; }
+    100% { opacity: 0; }
+}
+
 .overlay {
     position: absolute;
     inset: 0;
@@ -127,29 +178,29 @@ p { font-size: 14px; line-height: 1.6; color: #ccc; margin: 0 0 10px 0; }
         <div class="stat">⚔️ Kills: <span id="kills">0</span></div>
         <div class="stat">🌊 Wave: <span id="wave">1</span></div>
     </div>
+    <div id="boss-bar-wrap"><div id="boss-bar"></div></div>
 
-    <!-- Battle Ground Canvas Arena Area -->
     <div id="battlefield" style="position:absolute; inset:0; overflow:hidden;"></div>
 
     <div id="castle-wall">
         <div id="castle-heart">💖</div>
     </div>
-<!-- Main Entry Screen Screen -->
+
     <div id="start-overlay" class="overlay">
         <h1>⚔️ HEART GUARD ⚔️</h1>
         <p>Monsters are marching on your girlfriend's Castle Heart! Step up, swing your sword, and defend her love at all costs!</p>
-        
+
         <div class="controls-hint">
             <b>🎯 HOW TO PLAY:</b><br>
-            • <b>Tap/Click directly on enemies</b> to march there and slash them with your sword.<br>
-            • Clear waves to progress. Collect dropped potions to heal the castle walls!<br>
-            • Avoid letting monsters crash into the bottom wall.
+            • <b>Tap enemies</b> to slash them. Your knight marches to wherever you tap.<br>
+            • 👹 goblins are basic, 🐺 wolves are fast, 🧟 zombies soak up hits, 🦇 bats zigzag unpredictably, 💣 bombers rush and hit hard.<br>
+            • Watch for sudden <b>AMBUSHES</b> and side attacks from the flanks!<br>
+            • Every 5th wave brings a <b>BOSS</b>. Collect 🧪 potions to heal the wall.
         </div>
-        
+
         <button class="btn" onclick="startGame()">ENTER THE BATTLE</button>
     </div>
 
-    <!-- End Game Display Summary -->
     <div id="gameover-overlay" class="overlay" style="display:none;">
         <h1>💀 WALLS BREACHED 💀</h1>
         <p>The castle walls fell, but your valor was undeniable! You fought beautifully to protect her.</p>
@@ -161,95 +212,270 @@ p { font-size: 14px; line-height: 1.6; color: #ccc; margin: 0 0 10px 0; }
 
 <script>
 const bfield = document.getElementById("battlefield");
+const container = document.getElementById("game-container");
 let castleHP = 100, kills = 0, wave = 1, running = false;
 let enemies = [], drops = [];
-let spawnInterval, loopInterval, waveCheckInterval;
+let spawnInterval, loopInterval, waveCheckInterval, ambushTimeout;
+let bossActive = false;
+let tick = 0;
 
-// Player Knight Object State Mappings
-const knight = { x: 240, y: 550, targetX: 240, targetY: 550, speed: 12, element: null };
+const knight = { x: 240, y: 550, targetX: 240, speed: 13, element: null };
+
+// Base enemy archetypes. dx/dy define movement pattern; zigzag adds sway.
+const ENEMY_TYPES = [
+    { key: "goblin", emoji: "👹", hp: 1, minSpeed: 1.3, maxSpeed: 1.9, weight: 0.45, dmg: 6 },
+    { key: "wolf",   emoji: "🐺", hp: 2, minSpeed: 2.2, maxSpeed: 3.0, weight: 0.20, dmg: 8 },
+    { key: "zombie", emoji: "🧟", hp: 4, minSpeed: 0.6, maxSpeed: 0.9, weight: 0.15, dmg: 10 },
+    { key: "bat",    emoji: "🦇", hp: 1, minSpeed: 1.8, maxSpeed: 2.4, weight: 0.12, dmg: 6, zigzag: true },
+    { key: "bomber", emoji: "💣", hp: 1, minSpeed: 3.0, maxSpeed: 3.8, weight: 0.08, dmg: 18 }
+];
+
+function pickEnemyType() {
+    const r = Math.random();
+    let acc = 0;
+    for (const type of ENEMY_TYPES) {
+        acc += type.weight;
+        if (r <= acc) return type;
+    }
+    return ENEMY_TYPES[0];
+}
 
 function startGame() {
     document.getElementById("start-overlay").style.display = "none";
     document.getElementById("gameover-overlay").style.display = "none";
+    document.getElementById("boss-bar-wrap").style.display = "none";
     bfield.innerHTML = "";
-    
-    castleHP = 100; 
-    kills = 0; 
-    wave = 1; 
-    enemies = []; 
-    drops = []; 
+
+    castleHP = 100;
+    kills = 0;
+    wave = 1;
+    enemies = [];
+    drops = [];
     running = true;
+    bossActive = false;
+    tick = 0;
     updateHUD();
 
-    // Spawn player avatar element container frame
     knight.x = bfield.clientWidth / 2;
-    knight.y = bfield.clientHeight - 120;
-    knight.targetX = knight.x; 
-    knight.targetY = knight.y;
-    
+    knight.targetX = knight.x;
+
     knight.element = document.createElement("div");
     knight.element.className = "entity";
     knight.element.textContent = "🛡️";
-    knight.element.style.bottom = "85px"; 
+    knight.element.style.bottom = "85px";
+    knight.element.style.left = knight.x + "px";
     bfield.appendChild(knight.element);
 
-    // Interactive Core Action Event Input Handler Mapping
+    bfield.removeEventListener("click", handleBattlefieldClick);
+    bfield.removeEventListener("touchstart", handleBattlefieldTouch);
     bfield.addEventListener("click", handleBattlefieldClick);
+    bfield.addEventListener("touchstart", handleBattlefieldTouch, { passive: false });
 
-    // Start Clock Tick Mechanics Threads
     clearInterval(spawnInterval);
     clearInterval(waveCheckInterval);
     clearInterval(loopInterval);
+    clearTimeout(ambushTimeout);
 
+    showWaveBanner("🌊 Wave " + wave + " 🌊");
     spawnWave();
     loopInterval = setInterval(gameTick, 40);
-    waveCheckInterval = setInterval(checkWaveStatus, 2000);
+    waveCheckInterval = setInterval(checkWaveStatus, 800);
 }
 
+function handleBattlefieldTouch(e) {
+    e.preventDefault();
+    const touch = e.touches[0];
+    processTap(touch.clientX, touch.clientY);
+}
 function handleBattlefieldClick(e) {
+    processTap(e.clientX, e.clientY);
+}
+
+function processTap(clientX, clientY) {
     if (!running) return;
     const rect = bfield.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
+    const clickX = clientX - rect.left;
+    const clickY = clientY - rect.top;
 
-    // Set move markers target point triggers
     knight.targetX = clickX;
-    
-    // Check if clicked directly onto an enemy entity frame element box map area range 
-    enemies.forEach((enemy, idx) => {
-        const distance = Math.hypot(enemy.x - clickX, enemy.y - clickY);
-        if (distance < 45) {
-            attackEnemy(enemy, idx);
-        }
-    });
 
-    // Check if clicked directly on items drop pickups on ground fields
-    drops.forEach((drop, idx) => {
+    for (let i = enemies.length - 1; i >= 0; i--) {
+        const enemy = enemies[i];
+        const hitRadius = enemy.isBoss ? 65 : 45;
+        const distance = Math.hypot(enemy.x - clickX, enemy.y - clickY);
+        if (distance < hitRadius) {
+            attackEnemy(enemy, i);
+        }
+    }
+
+    for (let i = drops.length - 1; i >= 0; i--) {
+        const drop = drops[i];
         const distance = Math.hypot(drop.x - clickX, drop.y - clickY);
         if (distance < 40) {
-            collectDrop(drop, idx);
+            collectDrop(drop, i);
         }
-    });
+    }
 }
 
+// Regular wave spawning, with occasional flank rushes and random ambush bursts
 function spawnWave() {
     if (!running) return;
-    // Calculate total enemies based on scaling math properties formulas
-    const enemyCount = 4 + (wave * 3);
-    let spawned = 0;
 
+    // Every 5th wave is a boss wave
+    if (wave % 5 === 0) {
+        spawnBossWave();
+        return;
+    }
+
+    const enemyCount = Math.min(4 + wave * 2, 26);
+    let spawned = 0;
+    const spawnDelay = Math.max(850 - wave * 35, 280);
+
+    clearInterval(spawnInterval);
     spawnInterval = setInterval(() => {
         if (spawned >= enemyCount || !running) {
             clearInterval(spawnInterval);
             return;
         }
-        
-        const isAdvanced = Math.random()  slash.remove(), 200);
+        spawnEnemy();
+        spawned++;
+    }, spawnDelay);
+
+    scheduleAmbush();
+}
+
+// Random surprise burst mid-wave: several fast enemies at once from the sides
+function scheduleAmbush() {
+    clearTimeout(ambushTimeout);
+    if (wave < 2) return;
+    const delay = 3000 + Math.random() * 5000;
+    ambushTimeout = setTimeout(() => {
+        if (!running || bossActive) return;
+        showWaveBanner("⚠️ AMBUSH! ⚠️", "ambush");
+        const burst = 3 + Math.floor(Math.random() * 3);
+        for (let i = 0; i < burst; i++) {
+            setTimeout(() => { if (running) spawnEnemy(true); }, i * 120);
+        }
+        scheduleAmbush();
+    }, delay);
+}
+
+function spawnEnemy(isAmbush) {
+    const type = pickEnemyType();
+    const speedBoost = isAmbush ? 1.4 : 1;
+    const speed = (type.minSpeed + Math.random() * (type.maxSpeed - type.minSpeed) + wave * 0.06) * speedBoost;
+
+    // Roll spawn pattern: straight down, or diagonal from a flank
+    const pattern = Math.random();
+    let startX, startY, vx, vy;
+    const w = bfield.clientWidth, h = bfield.clientHeight;
+
+    if (pattern < 0.6 || isAmbush) {
+        // Straight from top
+        startX = 30 + Math.random() * (w - 60);
+        startY = -20;
+        vx = 0;
+        vy = speed;
+    } else if (pattern < 0.8) {
+        // From the left flank, angling toward the wall
+        startX = -20;
+        startY = Math.random() * h * 0.4;
+        vx = speed * 0.9;
+        vy = speed * 0.7;
+    } else {
+        // From the right flank
+        startX = w + 20;
+        startY = Math.random() * h * 0.4;
+        vx = -speed * 0.9;
+        vy = speed * 0.7;
+    }
+
+    const enemy = {
+        x: startX,
+        y: startY,
+        baseX: startX,
+        vx: vx,
+        vy: vy,
+        speed: speed,
+        hp: type.hp,
+        maxHp: type.hp,
+        dmg: type.dmg,
+        emoji: type.emoji,
+        zigzag: !!type.zigzag,
+        age: 0,
+        element: document.createElement("div")
+    };
+
+    enemy.element.className = "entity";
+    enemy.element.textContent = enemy.emoji;
+    enemy.element.style.left = enemy.x + "px";
+    enemy.element.style.top = enemy.y + "px";
+    bfield.appendChild(enemy.element);
+    enemies.push(enemy);
+}
+
+function spawnBossWave() {
+    bossActive = true;
+    showWaveBanner("👺 BOSS INCOMING 👺", "boss");
+
+    setTimeout(() => {
+        if (!running) return;
+        const bossHp = 12 + wave * 3;
+        const boss = {
+            x: bfield.clientWidth / 2,
+            y: -40,
+            baseX: bfield.clientWidth / 2,
+            vx: 0,
+            vy: 0.5 + wave * 0.03,
+            speed: 0.5 + wave * 0.03,
+            hp: bossHp,
+            maxHp: bossHp,
+            dmg: 35,
+            emoji: "👺",
+            zigzag: false,
+            isBoss: true,
+            age: 0,
+            element: document.createElement("div")
+        };
+        boss.element.className = "entity boss";
+        boss.element.textContent = boss.emoji;
+        boss.element.style.left = boss.x + "px";
+        boss.element.style.top = boss.y + "px";
+        bfield.appendChild(boss.element);
+        enemies.push(boss);
+
+        document.getElementById("boss-bar-wrap").style.display = "block";
+        updateBossBar(boss);
+    }, 1200);
+}
+
+function updateBossBar(boss) {
+    const bar = document.getElementById("boss-bar");
+    bar.style.width = Math.max(0, (boss.hp / boss.maxHp) * 100) + "%";
+}
+
+function attackEnemy(enemy, index) {
+    const slash = document.createElement("div");
+    slash.className = "slash-effect";
+    slash.textContent = "💥";
+    slash.style.left = enemy.x + "px";
+    slash.style.top = enemy.y + "px";
+    bfield.appendChild(slash);
+    setTimeout(() => slash.remove(), 200);
 
     enemy.hp--;
+
+    if (enemy.isBoss) {
+        updateBossBar(enemy);
+    }
+
     if (enemy.hp <= 0) {
-        // Roll chance odds factor metric checking for useful items drops allocation actions
-        if (Math.random() < 0.25) {
+        if (enemy.isBoss) {
+            bossActive = false;
+            document.getElementById("boss-bar-wrap").style.display = "none";
+            spawnDrop(enemy.x, enemy.y);
+            spawnDrop(enemy.x - 30, enemy.y - 10);
+        } else if (Math.random() < 0.22) {
             spawnDrop(enemy.x, enemy.y);
         }
         enemy.element.remove();
@@ -257,19 +483,18 @@ function spawnWave() {
         kills++;
         updateHUD();
     } else {
-        // Shaking feedback visual response tracking indicator mapping properties logic tags
         enemy.element.style.transform = "translateX(-50%) scale(1.3)";
-        setTimeout(() => { 
-            if (enemy.element) enemy.element.style.transform = "translateX(-50%) scale(1)"; 
+        setTimeout(() => {
+            if (enemy.element) enemy.element.style.transform = "translateX(-50%) scale(1)";
         }, 100);
     }
 }
 
 function spawnDrop(x, y) {
     const drop = {
-        x: x, 
+        x: x,
         y: y,
-        emoji: "🧪", // Healing element potion
+        emoji: "🧪",
         element: document.createElement("div")
     };
     drop.element.className = "entity";
@@ -278,13 +503,20 @@ function spawnDrop(x, y) {
     drop.element.style.top = drop.y + "px";
     bfield.appendChild(drop.element);
     drops.push(drop);
+
+    setTimeout(() => {
+        const idx = drops.indexOf(drop);
+        if (idx !== -1) {
+            drop.element.remove();
+            drops.splice(idx, 1);
+        }
+    }, 6000);
 }
 
 function collectDrop(drop, index) {
     castleHP = Math.min(100, castleHP + 15);
     updateHUD();
-    
-    // Trigger magic sparkle collection animation overlay impact
+
     const pop = document.createElement("div");
     pop.className = "slash-effect";
     pop.textContent = "✨";
@@ -292,55 +524,91 @@ function collectDrop(drop, index) {
     pop.style.top = drop.y + "px";
     bfield.appendChild(pop);
     setTimeout(() => pop.remove(), 250);
-  
+
     drop.element.remove();
     drops.splice(index, 1);
 }
-  
+
+function showWaveBanner(text, cls) {
+    const banner = document.createElement("div");
+    banner.className = "wave-banner" + (cls ? " " + cls : "");
+    banner.textContent = text;
+    bfield.appendChild(banner);
+    setTimeout(() => banner.remove(), 1400);
+}
+
+function shakeScreen() {
+    container.classList.remove("shake");
+    void container.offsetWidth; // restart animation
+    container.classList.add("shake");
+}
+
 function gameTick() {
     if (!running) return;
-    
+    tick++;
+
     if (Math.abs(knight.x - knight.targetX) > 5) {
         knight.x += (knight.targetX - knight.x) > 0 ? knight.speed : -knight.speed;
         knight.element.style.left = knight.x + "px";
     }
 
     const wallY = bfield.clientHeight - 100;
+    const w = bfield.clientWidth;
 
     for (let i = enemies.length - 1; i >= 0; i--) {
-        let enemy = enemies[i];
-        enemy.y += enemy.speed;
+        const enemy = enemies[i];
+        enemy.age++;
+
+        enemy.y += enemy.vy;
+        enemy.x += enemy.vx;
+
+        if (enemy.zigzag) {
+            enemy.x = enemy.baseX + Math.sin(enemy.age * 0.15) * 40;
+            enemy.baseX += enemy.vx; // in case a bat also drifts sideways
+        }
+
+        // Keep within horizontal bounds
+        if (enemy.x < 15) enemy.x = 15;
+        if (enemy.x > w - 15) enemy.x = w - 15;
+
         enemy.element.style.top = enemy.y + "px";
+        enemy.element.style.left = enemy.x + "px";
 
-        // Collision crash into wall check loop boundary limits rule processing constraints tag
         if (enemy.y >= wallY) {
-            castleHP -= enemy.maxHp * 8;
+            castleHP -= enemy.isBoss ? enemy.dmg : enemy.dmg;
             updateHUD();
+            shakeScreen();
 
-            // Visual crash tremor feedback flash
             document.getElementById("castle-wall").style.background = "#ff4d6d";
-            setTimeout(() => { 
-                document.getElementById("castle-wall").style.background = "#5a5255"; 
+            setTimeout(() => {
+                document.getElementById("castle-wall").style.background = "#5a5255";
             }, 150);
+
+            if (enemy.isBoss) {
+                bossActive = false;
+                document.getElementById("boss-bar-wrap").style.display = "none";
+            }
 
             enemy.element.remove();
             enemies.splice(i, 1);
 
             if (castleHP <= 0) {
+                castleHP = 0;
+                updateHUD();
                 endGame();
                 return;
             }
         }
     }
-} // Fixed closing bracket for gameTick
+}
 
 function checkWaveStatus() {
-    if (!running) return;
+    if (!running || bossActive) return;
 
-    // Advance to next wave automatically if current screen field vectors are cleared entirely
     if (enemies.length === 0) {
         wave++;
         updateHUD();
+        showWaveBanner("🌊 Wave " + wave + " 🌊");
         spawnWave();
     }
 }
@@ -353,11 +621,12 @@ function updateHUD() {
 
 function endGame() {
     running = false;
-    
+
     clearInterval(spawnInterval);
     clearInterval(loopInterval);
     clearInterval(waveCheckInterval);
-    
+    clearTimeout(ambushTimeout);
+
     document.getElementById("final-wave").textContent = wave;
     document.getElementById("final-kills").textContent = kills;
     document.getElementById("gameover-overlay").style.display = "flex";
@@ -365,5 +634,3 @@ function endGame() {
 </script>
 </body>
 </html>
-
-
